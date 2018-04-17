@@ -1,4 +1,3 @@
-import json
 import requests
 from django.conf import settings
 from oauth2client import service_account
@@ -51,7 +50,7 @@ class GoogleDrive(object):
         user_permission.update({'emailAddress': email_address})
         resp = requests.post(url, headers=headers, json=user_permission)
         if resp.status_code not in [200, 201]:
-            raise Exception('Could not grant access for user identified as: %s' % email_address)
+            raise Exception('Could not grant access to user identified as: %s' % email_address)
 
     def upload_file(self, filename, file_size, file_data):
         upload_url = self.start_file_upload(filename, file_size)
