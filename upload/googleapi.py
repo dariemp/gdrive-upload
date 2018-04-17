@@ -51,7 +51,6 @@ class GoogleDrive(object):
         user_permission.update({'emailAddress': email_address})
         resp = requests.post(url, headers=headers, json=user_permission)
         if resp.status_code not in [200, 201]:
-            print resp.text
             raise Exception('Could not grant access for user identified as: %s' % email_address)
 
     def upload_file(self, filename, file_size, file_data):
