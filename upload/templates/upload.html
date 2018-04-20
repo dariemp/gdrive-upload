@@ -123,13 +123,13 @@
                         update_status(uuid, 'succeeded', JSON.stringify(data));
                     } else {
                         update_percentage(uuid, end, file.size);
-                        send_next_chunk(data.upload, file, uuid, start + chunk_size, chunk_size, 0);
+                        send_next_chunk(upload_id, file, uuid, start + chunk_size, chunk_size, 0);
                     }
                 }).fail(function(jqXHR, textStatus, errorThrown ) {
                     if (retries >= 3) {
                         update_status(uuid, 'failed', jqXHR.responseText || errorThrown);
                     } else {
-                        send_next_chunk(data.upload, file, uuid, start, chunk_size, retries++);
+                        send_next_chunk(upload_id, file, uuid, start, chunk_size, retries++);
                     }
                 });
             }
