@@ -1,11 +1,226 @@
 <html>
+    <head>
+        <style>
+            #gdrive-files-upload {
+                position: absolute;
+                width: 100%;
+                height: 540px;
+            }
+            .gdrive-file-uploading-list {
+                padding-top: 10px;
+                padding-bottom: 10px;
+            }
+            .gdrive-file-uploading {
+                padding-top: 5px;
+                padding-bottom: 5px;
+            }
+            .gdrive-file-name {
+                font-weight: bold;
+            }
+            .uplading {
+                color: blue;
+            }
+            .succeeded {
+                color: green;
+            }
+            .failed {
+                color: red;
+            }
+        </style>
+        <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+        <script src="https://cdn.jsdelivr.net/npm/js-cookie@2/src/js.cookie.min.js"></script>
+        <script>
+            $(document).ready(function() {
+                $('#gdrive-files-upload')
+                    .bind('dragenter', function(ev) {
+                        $(ev.target).addClass('dragover');
+                        return false;
+                    })
+                    .bind('dragleave', function(ev) {
+                        $(ev.target).removeClass('dragover');
+                        return false;
+                    })
+                    .bind('dragover', function(ev) {
+                        return false;
+                    })
+                    .bind('drop', function(ev) {
+                        ev.preventDefault();
+                        var dropped_files = ev.originalEvent.dataTransfer.files;
+                        process_dropped_files(dropped_files)
+                        ev.stopPropagation();
+                        return false;
+                    });
+                });
+
+            function process_dropped_files(dropped_files) {
+                if (!dropped_files )
+                    return;
+                var $form = $('#gdrive-upload-form');        
+                $.each( dropped_files, function(i, file) {
+                    var chunk_size = 1048576;
+                    if (file.size <= chunk_size) {
+                        send_whole_file(file);
+                    } else {
+                        send_chunked_file(file, chunk_size);
+                    }
+                });
+            }
+
+            function send_whole_file(file) {
+                var ajax_data = new FormData();
+                var uuid = guid();
+                add_file_to_upload_list(file.name, uuid)
+                ajax_data.append('gdrive_file', file);
+                $.ajax(
+                    request(ajax_data, file)
+                ).done(function( data, textStatus, jqXHR ){
+                    update_status(uuid, 'succeeded', JSON.stringify(data));
+                }).fail(function(jqXHR, textStatus, errorThrown ) {
+                    update_status(uuid, 'failed', jqXHR.responseText || errorThrown);
+                }).always(function(){
+                    console.log('Completed!');
+                });
+            }
+
+            function send_chunked_file(file, chunk_size) {
+                var uuid = guid();
+                add_file_to_upload_list(file.name, uuid)
+                start_sending_chunks(file, uuid, chunk_size);
+            }
+
+            function start_sending_chunks(file, uuid, chunk_size) {
+                var start = 0;
+                var end = start + chunk_size;
+                var ajax_data = new FormData();
+                var chunk_data = slice(file, start, end);
+                ajax_data.append('gdrive_file', chunk_data);
+                $.ajax(
+                    request(ajax_data, file, start, end)
+                ).done(function( data, textStatus, jqXHR ){
+                    update_percentage(uuid, end, file.size);
+                    send_next_chunk(data.upload, file, uuid, chunk_size, chunk_size, 0);
+                }).fail(function(jqXHR, textStatus, errorThrown ) {
+                    update_status(uuid, 'failed', jqXHR.responseText || errorThrown);
+                });
+            }
+
+            async function send_next_chunk(upload_id, file, uuid, start, chunk_size, retries) {
+                var file_size = file.size
+                var end = start + chunk_size;
+                if (end >= file_size) {
+                        end = file_size;
+                }
+                var ajax_data = new FormData();
+                var chunk_data = slice(file, start, end);
+                ajax_data.append('gdrive_file', chunk_data);
+                $.ajax(
+                    request(ajax_data, file, start, end, upload_id)
+                ).done(function(data, textStatus, jqXHR){
+                    if (data.upload === true) {
+                        update_status(uuid, 'succeeded', JSON.stringify(data));
+                    } else {
+                        update_percentage(uuid, end, file.size);
+                        send_next_chunk(data.upload, file, uuid, start + chunk_size, chunk_size, 0);
+                    }
+                }).fail(function(jqXHR, textStatus, errorThrown ) {
+                    if (retries >= 3) {
+                        update_status(uuid, 'failed', jqXHR.responseText || errorThrown);
+                    } else {
+                        send_next_chunk(data.upload, file, uuid, start, chunk_size, retries++);
+                    }
+                });
+            }
+
+            function request(ajax_data, file, range_start, range_ends, upload_id) {
+                return {
+                    url: '/',
+                    type: 'post',
+                    data: ajax_data,
+                    dataType: 'json',
+                    headers: get_headers(file, range_start, range_ends, upload_id),
+                    cache: false,
+                    contentType: false,
+                    processData: false
+                }
+            }
+
+            function get_headers(file, range_start, range_ends, upload_id) {
+                var headers = {
+                    'X-CSRFToken': Cookies.get('csrftoken'),
+                    'X-File-Name': file.name,
+                }
+                if (range_start !== undefined && range_ends !== undefined) {
+                    headers['X-Content-Range'] = 'bytes ' + range_start + '-' + (range_ends - 1) + '/' + file.size;
+                }
+                if (upload_id !== undefined) {
+                    headers['X-Upload-ID'] = upload_id;
+                }
+                return headers;
+            }
+
+            function update_status(uuid, message, console_message) {
+                console.log(console_message);
+                var $status_div = $('.gdrive-file-uploading-list').children().find('.status-' + uuid);
+                $status_div.removeClass('uploading').addClass(message).text(message + '!').css('text-transform', 'capitalize');
+            }
+
+            function s4() {
+                return Math.floor((1 + Math.random()) * 0x10000)
+                    .toString(16)
+                    .substring(1);
+            }
+
+            function guid() {
+                return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
+                    s4() + '-' + s4() + s4() + s4();
+            }
+
+            function add_file_to_upload_list(file_name, uuid) {
+                $('.gdrive-file-uploading-list').append(
+                    '<div class="row gdrive-file-uploading">' +
+                    '    <div class="col-xs-12 col-sm-12 col-md-12 col-lg-12">' +
+                    '        <div class="gdrive-file-name col-xs-6 col-sm-4 col-md-4 col-lg-4">' +
+                    file_name + 
+                    '        </div>' +
+                    '        <div class="col-xs-6 col-sm-8 col-md-8 col-lg-8">' +
+                    '            <div class="status-' + uuid + ' uploading">Uploading...0%</div>' +
+                    '        </div>' +
+                    '    </div>' +
+                    '</div>'
+                );
+            }
+
+            function update_percentage(uuid, last_byte, file_size) {
+                var percentage = Math.floor(last_byte / file_size * 100) ;
+                $('.gdrive-file-uploading-list').children().find('.status-' + uuid).text('Uploading...' + percentage + '%');
+            }
+
+            function slice(file, start, end) {
+                var slice = file.mozSlice ? file.mozSlice :
+                            file.webkitSlice ? file.webkitSlice :
+                            file.slice ? file.slice : noop;
+                
+                return slice.bind(file)(start, end);
+            }
+                
+            function noop() {}
+        </script>
+    </head>
     <body>
-        {% if success %}<p style="color: green">Success!</p>{% endif %}
-        {% if failure %}<p style="color: red">{{error}}</p>{% endif %}
-        <form method="POST" action="/" enctype="multipart/form-data">
-            {% csrf_token %}
-            {{form}}
-            <input type="submit" value="Upload">
-        </form>
+        <header class="row head-home bg-primary">
+            <div class="container">
+                <div class="row featurette">
+                    <div class="col-md-12">
+                        <h1>Upload files</h1>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <div id="gdrive-files-upload" class="row" >
+            <div class="container gdrive-file-uploading-list"></div>
+        </div>
     </body>
 </html>
