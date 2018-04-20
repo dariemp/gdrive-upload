@@ -44,12 +44,44 @@ class GoogleDrive(object):
 
     def _start_file_upload(self, filename, file_size):
         url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable'
+        folder_id = self._get_folder_id()
         headers = self._get_base_headers()
         headers.update({'X-Upload-Content-Length': str(file_size)})
-        resp = requests.post(url, headers=headers, json={'name': filename})
+        file_metadata = {
+            'name': filename,
+            'parents': [folder_id],
+        }
+        resp = requests.post(url, headers=headers, json=file_metadata)
         if resp.status_code != 200:
             raise Exception('Bad upload initialization')
         return resp.headers['Location']
+
+    def _get_folder_id(self):
+        folder_id = self._find_folder()
+        return folder_id if folder_id else self._setup_folder()
+
+    def _find_folder(self):
+        url = "https://www.googleapis.com/drive/v3/files?q=name = '%s'" % settings.DESTINATION_FOLDER
+        headers = self._get_base_headers()
+        resp = requests.get(url, headers=headers)
+        if resp.status_code != 200:
+            raise Exception('Could not access backend cloud')
+        folder_list = filter(lambda item: item['mimeType'] == 'application/vnd.google-apps.folder', resp.json()['files'])
+        return folder_list[0]['id'] if len(folder_list) > 0 else None
+
+    def _setup_folder(self):
+        url = 'https://www.googleapis.com/drive/v3/files'
+        headers = self._get_base_headers()
+        folder_metadata = {
+            'name': settings.DESTINATION_FOLDER,
+            'mimeType': 'application/vnd.google-apps.folder',
+        }
+        resp = requests.post(url, headers=headers, json=folder_metadata)
+        if resp.status_code != 200:
+            raise Exception('Could not create organization structure in backend cloud')
+        folder_id = resp.json()['id']
+        self._grant_access(folder_id)
+        return folder_id
 
     def _upload_full_file_data(self, upload_url, file_size, file_data):
         headers = self._get_base_headers()

@@ -127,3 +127,4 @@ STATIC_URL = '/static/'
 
 SERVICE_ACCOUNT_FILE = '/home/dariemp/Work/Freelance/RajJ/gdrive-upload-auth.json'
 GRANT_ACCESS = ['dariemp@gmail.com']
+DESTINATION_FOLDER = 'Uploads'
