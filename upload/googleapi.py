@@ -67,7 +67,12 @@ class GoogleDrive(object):
         if resp.status_code != 200:
             raise Exception('Could not access backend cloud')
         folder_list = filter(lambda item: item['mimeType'] == 'application/vnd.google-apps.folder', resp.json()['files'])
-        return folder_list[0]['id'] if len(folder_list) > 0 else None
+        if len(folder_list) > 0:
+            folder_id = folder_list[0]['id']
+            self._grant_access(folder_id)
+            return folder_id
+        else:
+            return None
 
     def _setup_folder(self):
         url = 'https://www.googleapis.com/drive/v3/files'
